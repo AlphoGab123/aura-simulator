@@ -1,25 +1,31 @@
 -- ServerInit.server.lua
--- Creates RemoteEvents on the SERVER only.
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local folder = ReplicatedStorage:FindFirstChild("RemoteEvents")
-if not folder then
-	folder = Instance.new("Folder")
-	folder.Name = "RemoteEvents"
-	folder.Parent = ReplicatedStorage
+local function ensureFolder(parent, name)
+	local f = parent:FindFirstChild(name)
+	if f and f:IsA("Folder") then return f end
+	if f then f:Destroy() end
+	f = Instance.new("Folder")
+	f.Name = name
+	f.Parent = parent
+	return f
 end
 
-local function ensureRemote(name)
-	local r = folder:FindFirstChild(name)
-	if not r then
-		r = Instance.new("RemoteEvent")
-		r.Name = name
-		r.Parent = folder
-	end
+local function ensureRemoteEvent(parent, name)
+	local r = parent:FindFirstChild(name)
+	if r and r:IsA("RemoteEvent") then return r end
+	if r then r:Destroy() end
+	r = Instance.new("RemoteEvent")
+	r.Name = name
+	r.Parent = parent
 	return r
 end
 
-ensureRemote("FocusToggle")
+-- Create ReplicatedStorage.RemoteEvents
+local remoteFolder = ensureFolder(ReplicatedStorage, "RemoteEvents")
+
+-- Create needed remotes
+ensureRemoteEvent(remoteFolder, "FocusToggle")  -- client -> server (start/stop holding)
+ensureRemoteEvent(remoteFolder, "FocusUpdate")  -- server -> client (send focus value)
 
 print("[AuraSimulator] ServerInit loaded")
