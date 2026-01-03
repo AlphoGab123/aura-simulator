@@ -1,157 +1,54 @@
--- Renders a simple focus progress UI and updates it from server events.
-
-local Players = game:GetService("Players")
+-- FocusUI.client.lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Remotes = require(ReplicatedStorage:WaitForChild("Remotes"))
+local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-local focusUpdateEvent = Remotes.FocusUpdate
-local rebirthRequestEvent = Remotes.RebirthRequest
 
-local function createBar(parent)
-    local container = Instance.new("Frame")
-    container.Name = "FocusBar"
-    container.Size = UDim2.new(0, 320, 0, 18)
-    container.AnchorPoint = Vector2.new(0.5, 1)
-    container.Position = UDim2.new(0.5, 0, 1, -40)
-    container.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    container.BorderSizePixel = 0
-    container.Parent = parent
+local remoteFolder = ReplicatedStorage:WaitForChild("RemoteEvents")
+local FocusUpdate = remoteFolder:WaitForChild("FocusUpdate")
 
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = 1
-    stroke.Color = Color3.fromRGB(70, 70, 70)
-    stroke.Parent = container
+-- Build simple UI
+local gui = Instance.new("ScreenGui")
+gui.Name = "FocusHUD"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = container
+local frame = Instance.new("Frame")
+frame.AnchorPoint = Vector2.new(0.5, 1)
+frame.Position = UDim2.new(0.5, 0, 0.95, 0)
+frame.Size = UDim2.new(0, 320, 0, 60)
+frame.BackgroundTransparency = 0.25
+frame.Parent = gui
 
-    local fill = Instance.new("Frame")
-    fill.Name = "Fill"
-    fill.Size = UDim2.new(0, 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-    fill.BorderSizePixel = 0
-    fill.Parent = container
+local barBg = Instance.new("Frame")
+barBg.Position = UDim2.new(0, 10, 0, 30)
+barBg.Size = UDim2.new(1, -20, 0, 18)
+barBg.BackgroundTransparency = 0.35
+barBg.Parent = frame
 
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(0, 6)
-    fillCorner.Parent = fill
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 0, 1, 0)
+barFill.Parent = barBg
 
-    return container, fill
+local label = Instance.new("TextLabel")
+label.Position = UDim2.new(0, 10, 0, 5)
+label.Size = UDim2.new(1, -20, 0, 20)
+label.BackgroundTransparency = 1
+label.TextScaled = true
+label.Text = "Focus: 0"
+label.Parent = frame
+
+local function setFill(focus, maxFocus, state)
+	local ratio = 0
+	if maxFocus > 0 then ratio = math.clamp(focus / maxFocus, 0, 1) end
+	barFill.Size = UDim2.new(ratio, 0, 1, 0)
+	label.Text = string.format("%s  |  Focus: %d / %d", tostring(state), focus, maxFocus)
 end
 
-local function createLabel(name, text, position, parent)
-    local label = Instance.new("TextLabel")
-    label.Name = name
-    label.BackgroundTransparency = 1
-    label.Size = UDim2.new(0, 200, 0, 18)
-    label.Position = position
-    label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Font = Enum.Font.GothamSemibold
-    label.TextSize = 14
-    label.TextColor3 = Color3.fromRGB(230, 230, 230)
-    label.Text = text
-    label.Parent = parent
-    return label
-end
-
-local function createButton(name, text, position, parent)
-    local button = Instance.new("TextButton")
-    button.Name = name
-    button.Size = UDim2.new(0, 110, 0, 26)
-    button.AnchorPoint = Vector2.new(0.5, 0)
-    button.Position = position
-    button.BackgroundColor3 = Color3.fromRGB(210, 80, 80)
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Font = Enum.Font.GothamBold
-    button.TextSize = 14
-    button.Text = text
-    button.Visible = false
-    button.AutoButtonColor = true
-    button.Parent = parent
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = button
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(120, 40, 40)
-    stroke.Thickness = 1
-    stroke.Parent = button
-
-    return button
-end
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "FocusUI"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
-
-local barContainer, barFill = createBar(screenGui)
-
-local stateLabel = createLabel("StateLabel", "State: Calm", UDim2.new(0.5, 0, 1, -60), screenGui)
-
-local focusLabel = createLabel("FocusLabel", "Focus: 0", UDim2.new(0.5, 0, 1, -16), screenGui)
-focusLabel.TextSize = 12
-focusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-
-local multiplierLabel = createLabel(
-    "MultiplierLabel",
-    "x1.00",
-    UDim2.new(0.5, 0, 1, -0),
-    screenGui
-)
-multiplierLabel.TextSize = 12
-multiplierLabel.TextColor3 = Color3.fromRGB(200, 230, 200)
-
-local rebirthButton = createButton(
-    "RebirthButton",
-    "REBIRTH",
-    UDim2.new(0.5, 170, 1, -40),
-    screenGui
-)
-
-local function getStateText(focusValue)
-    if focusValue >= 60 then
-        return "Instinct"
-    elseif focusValue >= 25 then
-        return "Focused"
-    else
-        return "Calm"
-    end
-end
-
-local function updateUI(focusValue)
-    local clampedPercent = math.clamp(focusValue, 0, 100) / 100
-    barFill.Size = UDim2.new(clampedPercent, 0, 1, 0)
-
-    stateLabel.Text = string.format("State: %s", getStateText(focusValue))
-    focusLabel.Text = string.format("Focus: %d", math.floor(focusValue))
-
-    rebirthButton.Visible = focusValue >= 100
-    rebirthButton.Active = rebirthButton.Visible
-end
-
-local function updateMultiplier(multiplier)
-    if multiplier then
-        multiplierLabel.Text = string.format("x%.2f", multiplier)
-    end
-end
-
-rebirthButton.MouseButton1Click:Connect(function()
-    if rebirthButton.Active then
-        rebirthRequestEvent:FireServer()
-    end
+FocusUpdate.OnClientEvent:Connect(function(focus, maxFocus, state)
+	if typeof(focus) ~= "number" then return end
+	if typeof(maxFocus) ~= "number" then maxFocus = 100 end
+	setFill(focus, maxFocus, state or "FOCUS")
 end)
 
-focusUpdateEvent.OnClientEvent:Connect(function(focusValue, multiplier)
-    updateUI(focusValue)
-    updateMultiplier(multiplier)
-end)
-
--- Initialize with zero focus.
-updateUI(0)
-updateMultiplier(1)
+print("[AuraSimulator] FocusUI loaded (client)")

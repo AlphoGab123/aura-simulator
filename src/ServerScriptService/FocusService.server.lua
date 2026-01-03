@@ -1,131 +1,102 @@
+-- FocusService.server.lua
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
-local Remotes = require(ReplicatedStorage.Remotes)
+local remoteFolder = ReplicatedStorage:WaitForChild("RemoteEvents")
+local FocusToggle = remoteFolder:WaitForChild("FocusToggle")
+local FocusUpdate = remoteFolder:WaitForChild("FocusUpdate")
 
-local TICK_RATE = 0.1
-local FOCUS_GAIN = 1
-local FOCUS_DECAY = -0.5
-local REBIRTH_COOLDOWN = 1
-local FOCUS_CAP_FOR_REBIRTH = 100
-local MULTIPLIER_STEP = 0.25
+-- Settings (tune later)
+local MAX_FOCUS = 100
+local TICK = 0.25
 
-local focusData = {}
-local FocusUpdate = Remotes.FocusUpdate
-local RebirthRequest = Remotes.RebirthRequest
+local GAIN_IDLE = 1      -- per tick when not holding
+local GAIN_HOLD = 4      -- per tick when holding
+local DECAY_IDLE = 2     -- per tick decay when not holding and focus > 0
 
-local function updateMultiplier(data)
-    data.multiplier = 1 + (data.rebirths * MULTIPLIER_STEP)
-    data.stats.Multiplier.Value = string.format("x%.2f", data.multiplier)
+local function clamp(n, a, b)
+	if n < a then return a end
+	if n > b then return b end
+	return n
 end
 
-local function initializePlayer(player)
-    local statsFolder = Instance.new("Folder")
-    statsFolder.Name = "leaderstats"
-    statsFolder.Parent = player
-
-    local focusStat = Instance.new("NumberValue")
-    focusStat.Name = "Focus"
-    focusStat.Value = 0
-    focusStat.Parent = statsFolder
-
-    local rebirthsStat = Instance.new("IntValue")
-    rebirthsStat.Name = "Rebirths"
-    rebirthsStat.Value = 0
-    rebirthsStat.Parent = statsFolder
-
-    local multiplierStat = Instance.new("StringValue")
-    multiplierStat.Name = "Multiplier"
-    multiplierStat.Value = "x1.00"
-    multiplierStat.Parent = statsFolder
-
-    local multiplier = 1
-
-    focusData[player] = {
-        value = 0,
-        focusing = false,
-        nextDebugThreshold = 20,
-        rebirths = 0,
-        multiplier = multiplier,
-        lastRebirth = 0,
-        stats = {
-            Focus = focusStat,
-            Rebirths = rebirthsStat,
-            Multiplier = multiplierStat,
-        },
-    }
-
-    updateMultiplier(focusData[player])
+local function getStateLabel(focus)
+	if focus >= 80 then
+		return "INSTINCT"
+	elseif focus >= 40 then
+		return "FOCUSED"
+	else
+		return "CALM"
+	end
 end
 
-local function cleanupPlayer(player)
-    focusData[player] = nil
+local function ensureLeaderstats(plr)
+	local ls = plr:FindFirstChild("leaderstats")
+	if not ls then
+		ls = Instance.new("Folder")
+		ls.Name = "leaderstats"
+		ls.Parent = plr
+	end
+
+	local focusVal = ls:FindFirstChild("Focus")
+	if not focusVal then
+		focusVal = Instance.new("IntValue")
+		focusVal.Name = "Focus"
+		focusVal.Value = 0
+		focusVal.Parent = ls
+	end
+
+	return focusVal
 end
 
-local function onFocusToggle(player, isFocusing)
-    local data = focusData[player]
-    if not data then
-        return
-    end
+-- per-player runtime state
+local holding = {} -- [player] = true/false
 
-    data.focusing = isFocusing and true or false
-end
+Players.PlayerAdded:Connect(function(plr)
+	holding[plr] = false
+	ensureLeaderstats(plr)
+end)
 
-local function onRebirthRequest(player)
-    local data = focusData[player]
-    if not data then
-        return
-    end
+Players.PlayerRemoving:Connect(function(plr)
+	holding[plr] = nil
+end)
 
-    local now = os.clock()
-    if now - data.lastRebirth < REBIRTH_COOLDOWN then
-        return
-    end
+FocusToggle.OnServerEvent:Connect(function(plr, isHolding)
+	if typeof(isHolding) ~= "boolean" then return end
+	holding[plr] = isHolding
+end)
 
-    if data.value < FOCUS_CAP_FOR_REBIRTH then
-        return
-    end
+-- main loop
+task.spawn(function()
+	while true do
+		task.wait(TICK)
 
-    data.lastRebirth = now
-    data.value = 0
-    data.rebirths += 1
-    data.nextDebugThreshold = 20
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local focusVal = ensureLeaderstats(plr)
+			local f = focusVal.Value
 
-    data.stats.Focus.Value = 0
-    data.stats.Rebirths.Value = data.rebirths
+			if holding[plr] then
+				f = f + GAIN_HOLD
+			else
+				-- small idle gain + decay when not holding
+				f = f + GAIN_IDLE
+				if f > 0 then
+					f = f - DECAY_IDLE
+				end
+			end
 
-    updateMultiplier(data)
+			f = clamp(f, 0, MAX_FOCUS)
+			focusVal.Value = f
 
-    FocusUpdate:FireClient(player, math.floor(data.value), data.multiplier)
-end
+			-- Send to this player for UI
+			local state = getStateLabel(f)
+			FocusUpdate:FireClient(plr, f, MAX_FOCUS, state)
 
-Players.PlayerAdded:Connect(initializePlayer)
-Players.PlayerRemoving:Connect(cleanupPlayer)
+			-- Optional debug
+			-- print(plr.Name .. " Focus:", f)
+		end
+	end
+end)
 
-for _, player in ipairs(Players:GetPlayers()) do
-    initializePlayer(player)
-end
-
-Remotes.FocusToggle.OnServerEvent:Connect(onFocusToggle)
-RebirthRequest.OnServerEvent:Connect(onRebirthRequest)
-
-local function updateFocus()
-    for player, data in pairs(focusData) do
-        local delta = data.focusing and (FOCUS_GAIN * data.multiplier) or FOCUS_DECAY
-        data.value = math.max(0, data.value + delta)
-
-        data.stats.Focus.Value = math.floor(data.value)
-
-        FocusUpdate:FireClient(player, math.floor(data.value), data.multiplier)
-
-        if data.value >= data.nextDebugThreshold then
-            print(string.format("%s Focus: %s", player.Name, data.value))
-            data.nextDebugThreshold += 20
-        end
-    end
-end
-
-while true do
-    updateFocus()
-    task.wait(TICK_RATE)
-end
+print("[AuraSimulator] FocusService loaded")
