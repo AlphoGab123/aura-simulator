@@ -14,6 +14,11 @@ local focusData = {}
 local FocusUpdate = Remotes.FocusUpdate
 local RebirthRequest = Remotes.RebirthRequest
 
+local function updateMultiplier(data)
+    data.multiplier = 1 + (data.rebirths * MULTIPLIER_STEP)
+    data.stats.Multiplier.Value = string.format("x%.2f", data.multiplier)
+end
+
 local function initializePlayer(player)
     local statsFolder = Instance.new("Folder")
     statsFolder.Name = "leaderstats"
@@ -64,11 +69,6 @@ local function onFocusToggle(player, isFocusing)
     end
 
     data.focusing = isFocusing and true or false
-end
-
-local function updateMultiplier(data)
-    data.multiplier = 1 + (data.rebirths * MULTIPLIER_STEP)
-    data.stats.Multiplier.Value = string.format("x%.2f", data.multiplier)
 end
 
 local function onRebirthRequest(player)
