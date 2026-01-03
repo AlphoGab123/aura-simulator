@@ -1,27 +1,24 @@
+-- FocusInput.client.lua
+-- Sends focus start/stop to server.
+
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Remotes = require(ReplicatedStorage:WaitForChild("Remotes"))
+local remoteFolder = ReplicatedStorage:WaitForChild("RemoteEvents")
+local FocusToggle = remoteFolder:WaitForChild("FocusToggle")
 
-local function onInputBegan(input, gameProcessedEvent)
-    if gameProcessedEvent then
-        return
-    end
+print("[AuraSimulator] FocusInput loaded (client)")
 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        Remotes.FocusToggle:FireServer(true)
-    end
-end
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		FocusToggle:FireServer(true)
+	end
+end)
 
-local function onInputEnded(input, gameProcessedEvent)
-    if gameProcessedEvent then
-        return
-    end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        Remotes.FocusToggle:FireServer(false)
-    end
-end
-
-UserInputService.InputBegan:Connect(onInputBegan)
-UserInputService.InputEnded:Connect(onInputEnded)
+UserInputService.InputEnded:Connect(function(input, gp)
+	if gp then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		FocusToggle:FireServer(false)
+	end
+end)
